@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Babylon.js 3D Game</title>
+    <style>
+        html, body {
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+        }
+        #renderCanvas {
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+        }
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            pointer-events: none;
+            text-shadow: 1px 1px 2px black;
+        }
+    </style>
+    <!-- Babylon.js core -->
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+</head>
+<body>
+    <div id="ui">
+        <h2>3D Map Explorer</h2>
+        <h3 id="healthDisplay">Health: 10</h3>
+        <p>Use W, A, S, D or Arrow Keys to move.</p>
+        <p>Press Space to jump.</p>
+        <p>Use Mouse to rotate camera.</p>
+    </div>
+    <canvas id="renderCanvas"></canvas>
+    <script src="main.js"></script>
+</body>
+</html>
