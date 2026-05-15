@@ -15,6 +15,36 @@ class BoxEntity {
     }
 }
 
+class ArrowEntity {
+    constructor(scene, position, direction, isEnemyArrow = false) {
+        this.mesh = BABYLON.MeshBuilder.CreateCylinder("arrow", { diameter: 0.1, height: 1 }, scene);
+        this.mesh.position.copyFrom(position);
+        
+        // Orient arrow along direction
+        const target = position.add(direction);
+        this.mesh.lookAt(target);
+        this.mesh.rotation.x += Math.PI / 2; // adjust cylinder orientation
+        
+        const mat = new BABYLON.StandardMaterial("arrowMat", scene);
+        mat.diffuseColor = isEnemyArrow ? new BABYLON.Color3(1, 0, 0) : new BABYLON.Color3(1, 1, 0); // Red if enemy arrow, Yellow if player arrow
+        this.mesh.material = mat;
+        
+        this.velocity = direction.scale(isEnemyArrow ? 0.3 : 0.8);
+        this.isEnemyArrow = isEnemyArrow;
+        this.isDead = false;
+        this.lifeTimer = 2000; // 2 seconds
+    }
+    
+    update(engine) {
+        this.mesh.position.addInPlace(this.velocity);
+        this.lifeTimer -= engine.getDeltaTime();
+        if (this.lifeTimer <= 0) {
+            this.isDead = true;
+            this.mesh.dispose();
+        }
+    }
+}
+
 class PlayerEntity {
     constructor(scene, camera) {
         this.scene = scene;
@@ -30,6 +60,22 @@ class PlayerEntity {
         // Health properties
         this.health = 10;
         this.invulnerableTimer = 0;
+        this.hasWings = false;
+        
+        // Weapon properties
+        this.activeWeapon = "sword"; // "sword", "bow", "whip"
+        this.swordSwingTimer = 0;
+        this.isSwinging = false;
+        this.arrowCooldown = 0;
+        this.zPressed = false;
+        
+        this.whipTimer = 0;
+        this.isWhipping = false;
+        this.whipHitEnemies = [];
+        
+        this.spearTimer = 0;
+        this.isSpearing = false;
+        this.spearHitEnemies = [];
 
         // Create the invisible collision capsule
         this.mesh = BABYLON.MeshBuilder.CreateCapsule("player", { radius: 0.5, height: 2 }, scene);
@@ -72,11 +118,11 @@ class PlayerEntity {
         leftArm.position.y = 0.15;
         leftArm.material = skinMat;
 
-        const rightArm = BABYLON.MeshBuilder.CreateBox("rightArm", { width: 0.2, height: 0.7, depth: 0.2 }, scene);
-        rightArm.parent = this.mesh;
-        rightArm.position.x = 0.4;
-        rightArm.position.y = 0.15;
-        rightArm.material = skinMat;
+        this.rightArm = BABYLON.MeshBuilder.CreateBox("rightArm", { width: 0.2, height: 0.7, depth: 0.2 }, scene);
+        this.rightArm.parent = this.mesh;
+        this.rightArm.position.x = 0.4;
+        this.rightArm.position.y = 0.15;
+        this.rightArm.material = skinMat;
 
         const leftLeg = BABYLON.MeshBuilder.CreateBox("leftLeg", { width: 0.25, height: 0.8, depth: 0.25 }, scene);
         leftLeg.parent = this.mesh;
@@ -89,9 +135,113 @@ class PlayerEntity {
         rightLeg.position.x = 0.15;
         rightLeg.position.y = -0.6;
         rightLeg.material = pantsMat;
+
+        // Create the sword
+        const swordMat = new BABYLON.StandardMaterial("swordMat", scene);
+        swordMat.diffuseColor = new BABYLON.Color3(0.8, 0.8, 0.8);
+        this.sword = BABYLON.MeshBuilder.CreateBox("sword", { width: 0.1, height: 1.5, depth: 0.2 }, scene);
+        this.sword.parent = this.rightArm;
+        this.sword.position = new BABYLON.Vector3(0, -0.5, 0.5);
+        this.sword.rotation.x = Math.PI / 4;
+        this.sword.material = swordMat;
+
+        // Create the bow
+        const bowMat = new BABYLON.StandardMaterial("bowMat", scene);
+        bowMat.diffuseColor = new BABYLON.Color3(0.5, 0.3, 0.1);
+        this.bow = BABYLON.MeshBuilder.CreateTorus("bow", { diameter: 0.8, thickness: 0.1, tessellation: 16 }, scene);
+        this.bow.parent = this.rightArm;
+        this.bow.position = new BABYLON.Vector3(0, -0.5, 0.5);
+        this.bow.rotation.y = Math.PI / 2;
+        this.bow.material = bowMat;
+
+        // Create the whip
+        const whipMat = new BABYLON.StandardMaterial("whipMat", scene);
+        whipMat.diffuseColor = new BABYLON.Color3(0.4, 0.2, 0.0);
+        this.whip = BABYLON.MeshBuilder.CreateCylinder("whip", { diameter: 0.1, height: 1 }, scene);
+        this.whip.bakeTransformIntoVertices(BABYLON.Matrix.Translation(0, 0.5, 0));
+        this.whip.parent = this.rightArm;
+        this.whip.position = new BABYLON.Vector3(0, -0.5, 0.5);
+        this.whip.rotation.x = Math.PI / 2;
+        this.whip.material = whipMat;
+        this.whip.scaling.y = 0.01;
+        
+        // Create the spear
+        const spearMat = new BABYLON.StandardMaterial("spearMat", scene);
+        spearMat.diffuseColor = new BABYLON.Color3(0.7, 0.7, 0.7); // Silver
+        this.spear = BABYLON.MeshBuilder.CreateCylinder("spear", { diameter: 0.1, height: 1 }, scene);
+        this.spear.bakeTransformIntoVertices(BABYLON.Matrix.Translation(0, 0.5, 0));
+        this.spear.parent = this.rightArm;
+        this.spear.position = new BABYLON.Vector3(0, -0.5, 0.5);
+        this.spear.rotation.x = Math.PI / 2;
+        this.spear.material = spearMat;
+        this.spear.scaling.y = 1.5; // Idle length
+        
+        // Create the wings
+        const wingsMat = new BABYLON.StandardMaterial("wingsMat", scene);
+        wingsMat.diffuseColor = new BABYLON.Color3(1, 1, 1); // White wings
+        
+        this.wings = new BABYLON.TransformNode("wingsNode", scene);
+        this.wings.parent = this.mesh;
+        this.wings.position = new BABYLON.Vector3(0, 1.3, -0.3); // High on the back
+        
+        // Left Wing
+        const leftWing = BABYLON.MeshBuilder.CreateCylinder("wings_left", { diameterTop: 0.8, diameterBottom: 0.1, height: 2, tessellation: 16 }, scene);
+        leftWing.parent = this.wings;
+        leftWing.position = new BABYLON.Vector3(-0.6, 0, 0);
+        leftWing.rotation.z = Math.PI / 6; // Angle outwards
+        leftWing.rotation.x = -Math.PI / 8; // Sweep backwards
+        leftWing.scaling.z = 0.1; // Flatten it
+        leftWing.material = wingsMat;
+        leftWing.isVisible = false;
+        
+        // Right Wing
+        const rightWing = BABYLON.MeshBuilder.CreateCylinder("wings_right", { diameterTop: 0.8, diameterBottom: 0.1, height: 2, tessellation: 16 }, scene);
+        rightWing.parent = this.wings;
+        rightWing.position = new BABYLON.Vector3(0.6, 0, 0);
+        rightWing.rotation.z = -Math.PI / 6; // Angle outwards
+        rightWing.rotation.x = -Math.PI / 8; // Sweep backwards
+        rightWing.scaling.z = 0.1; // Flatten it
+        rightWing.material = wingsMat;
+        rightWing.isVisible = false;
+        
+        this.equipWeapon(this.activeWeapon);
     }
     
-    update(inputMap, engine, enemies) {
+    equipWeapon(weaponName) {
+        this.activeWeapon = weaponName;
+        this.sword.isVisible = (weaponName === "sword");
+        this.bow.isVisible = (weaponName === "bow");
+        this.whip.isVisible = (weaponName === "whip");
+        this.spear.isVisible = (weaponName === "spear");
+    }
+
+    takeDamage(amount) {
+        if (this.invulnerableTimer > 0) return;
+        this.health -= amount;
+        this.invulnerableTimer = 1000; // 1 second of invulnerability
+        
+        // Lose wings upon taking damage
+        if (this.hasWings) {
+            this.hasWings = false;
+            this.mesh.getChildMeshes().forEach(m => {
+                if (m.name.startsWith("wings")) m.isVisible = false;
+            });
+        }
+        
+        const healthDisplay = document.getElementById("healthDisplay");
+        if (healthDisplay) healthDisplay.innerText = "Health: " + this.health;
+        
+        if (this.health <= 0) {
+            alert("Game Over! You ran out of health.");
+            this.health = 10;
+            if (healthDisplay) healthDisplay.innerText = "Health: " + this.health;
+            // Respawn
+            this.mesh.position = new BABYLON.Vector3(0, 5, 0);
+            this.yVelocity = 0;
+        }
+    }
+
+    update(inputMap, engine, enemies, arrows) {
         let moved = false;
         
         // Calculate forward and right directions based on camera
@@ -117,6 +267,12 @@ class PlayerEntity {
         this.yVelocity += this.gravity;
         if (inputMap[" "] && this.isGrounded) {
             this.yVelocity = this.jumpForce;
+            this.isGrounded = false;
+        }
+
+        // Flight with wings
+        if (this.hasWings && inputMap["enter"]) {
+            this.yVelocity = this.jumpForce * 0.6; // Fly up continuously
             this.isGrounded = false;
         }
 
@@ -157,27 +313,135 @@ class PlayerEntity {
             this.mesh.getChildMeshes().forEach(m => m.visibility = visible ? 0.5 : 1.0);
         } else {
             // Reset visibility
-            this.mesh.getChildMeshes().forEach(m => m.visibility = 1.0);
+            this.mesh.getChildMeshes().forEach(m => {
+                // Ensure inactive weapons stay invisible
+                if (m.name === "sword" && this.activeWeapon !== "sword") m.isVisible = false;
+                else if (m.name === "bow" && this.activeWeapon !== "bow") m.isVisible = false;
+                else if (m.name === "whip" && this.activeWeapon !== "whip") m.isVisible = false;
+                else if (m.name === "spear" && this.activeWeapon !== "spear") m.isVisible = false;
+                else if (m.name.startsWith("wings") && !this.hasWings) m.isVisible = false;
+                else if (m.name.startsWith("wings") && this.hasWings) m.isVisible = true;
+                else m.visibility = 1.0;
+            });
             
-            // Check collisions
+            // Check collisions with enemies
             for (const enemy of enemies) {
                 if (this.mesh.intersectsMesh(enemy.mesh, false)) {
-                    this.health -= 1;
-                    this.invulnerableTimer = 1000; // 1 second of invulnerability
-                    
-                    const healthDisplay = document.getElementById("healthDisplay");
-                    if (healthDisplay) healthDisplay.innerText = "Health: " + this.health;
-                    
-                    if (this.health <= 0) {
-                        alert("Game Over! You ran out of health.");
-                        this.health = 10;
-                        if (healthDisplay) healthDisplay.innerText = "Health: " + this.health;
-                        // Respawn
-                        this.mesh.position = new BABYLON.Vector3(0, 5, 0);
-                        this.yVelocity = 0;
-                    }
+                    this.takeDamage(1);
                     break; // Take damage from at most one enemy per frame
                 }
+            }
+        }
+
+        // Weapon switching
+        if (inputMap["z"] && !this.zPressed) {
+            this.zPressed = true;
+            if (this.activeWeapon === "sword") this.equipWeapon("bow");
+            else if (this.activeWeapon === "bow") this.equipWeapon("whip");
+            else if (this.activeWeapon === "whip") this.equipWeapon("spear");
+            else this.equipWeapon("sword");
+        } else if (!inputMap["z"]) {
+            this.zPressed = false;
+        }
+
+        // Weapon logic
+        if (this.arrowCooldown > 0) this.arrowCooldown -= engine.getDeltaTime();
+
+        if (inputMap["c"] && !this.isSwinging && !this.isWhipping && !this.isSpearing) {
+            if (this.activeWeapon === "sword") {
+                this.isSwinging = true;
+                this.swordSwingTimer = 300;
+            } else if (this.activeWeapon === "bow" && this.arrowCooldown <= 0) {
+                this.arrowCooldown = 500;
+                
+                // Shoot arrow
+                const dir = new BABYLON.Vector3(Math.sin(this.mesh.rotation.y), 0, Math.cos(this.mesh.rotation.y));
+                const pos = this.mesh.position.clone();
+                pos.y += 0.5; // shoot from chest height
+                arrows.push(new ArrowEntity(this.scene, pos, dir));
+            } else if (this.activeWeapon === "whip") {
+                this.isWhipping = true;
+                this.whipTimer = 600;
+                this.whipHitEnemies = [];
+            } else if (this.activeWeapon === "spear") {
+                this.isSpearing = true;
+                this.spearTimer = 400;
+                this.spearHitEnemies = [];
+            }
+        }
+
+        if (this.isSwinging && this.activeWeapon === "sword") {
+            this.swordSwingTimer -= engine.getDeltaTime();
+            this.sword.rotation.x = -Math.PI / 2; // Swing down
+            
+            for (const enemy of enemies) {
+                if (!enemy.isDead && this.sword.intersectsMesh(enemy.mesh, false)) {
+                    enemy.takeDamage(2);
+                }
+            }
+
+            if (this.swordSwingTimer <= 0) {
+                this.isSwinging = false;
+                this.sword.rotation.x = Math.PI / 4; // Rest position
+            }
+        }
+
+        if (this.isWhipping && this.activeWeapon === "whip") {
+            this.whipTimer -= engine.getDeltaTime();
+            const t = 600 - this.whipTimer; // 0 to 600
+            
+            // Whip length: grows to 10 then shrinks
+            let length = 0.01;
+            if (t < 300) {
+                length = Math.max(0.01, (t / 300) * 10);
+            } else {
+                length = Math.max(0.01, ((600 - t) / 300) * 10);
+            }
+            this.whip.scaling.y = length;
+
+            for (const enemy of enemies) {
+                if (!enemy.isDead && !this.whipHitEnemies.includes(enemy) && this.whip.intersectsMesh(enemy.mesh, false)) {
+                    this.whipHitEnemies.push(enemy);
+                    
+                    // Critical hit (full damage = 2) if near max extension
+                    if (t >= 200 && t <= 400) {
+                        enemy.takeDamage(2);
+                    } else {
+                        // Half damage
+                        enemy.takeDamage(1);
+                    }
+                }
+            }
+
+            if (this.whipTimer <= 0) {
+                this.isWhipping = false;
+                this.whip.scaling.y = 0.01;
+            }
+        }
+
+        if (this.isSpearing && this.activeWeapon === "spear") {
+            this.spearTimer -= engine.getDeltaTime();
+            const t = 400 - this.spearTimer; // 0 to 400
+            
+            // Spear length: 1.5 -> 5 -> 1.5
+            let length = 1.5;
+            if (t < 200) {
+                length = 1.5 + (t / 200) * 3.5;
+            } else {
+                length = 5 - ((t - 200) / 200) * 3.5;
+            }
+            this.spear.scaling.y = length;
+
+            for (const enemy of enemies) {
+                if (!enemy.isDead && !this.spearHitEnemies.includes(enemy) && this.spear.intersectsMesh(enemy.mesh, false)) {
+                    this.spearHitEnemies.push(enemy);
+                    enemy.takeDamage(2); // Defeats in one hit
+                }
+            }
+
+            if (this.spearTimer <= 0) {
+                this.isSpearing = false;
+                this.spear.scaling.y = 1.5;
             }
         }
     }
@@ -188,10 +452,14 @@ class EnemyEntity {
         
         // Physics and movement properties
         this.speed = 0.05; // slower than player
+        this.jumpForce = 0.3;
         this.gravity = -0.015;
         this.yVelocity = 0;
         this.changeDirectionTimer = 0;
         this.moveDirection = new BABYLON.Vector3(0, 0, 0);
+        this.isDead = false;
+        this.health = 2;
+        this.hasWings = false;
 
         // Create the invisible collision capsule
         this.mesh = BABYLON.MeshBuilder.CreateCapsule("enemy", { radius: 0.5, height: 2 }, scene);
@@ -253,9 +521,69 @@ class EnemyEntity {
         rightLeg.position.x = 0.15;
         rightLeg.position.y = -0.6;
         rightLeg.material = pantsMat;
+
+        // Create wings for enemy (initially hidden)
+        const wingsMat = new BABYLON.StandardMaterial("enemyWingsMat", scene);
+        wingsMat.diffuseColor = new BABYLON.Color3(1, 1, 1);
+        
+        this.wingsNode = new BABYLON.TransformNode("enemyWingsNode", scene);
+        this.wingsNode.parent = this.mesh;
+        this.wingsNode.position = new BABYLON.Vector3(0, 1.3, -0.3);
+        
+        const leftWing = BABYLON.MeshBuilder.CreateCylinder("e_wings_left", { diameterTop: 0.8, diameterBottom: 0.1, height: 2, tessellation: 16 }, scene);
+        leftWing.parent = this.wingsNode;
+        leftWing.position = new BABYLON.Vector3(-0.6, 0, 0);
+        leftWing.rotation.z = Math.PI / 6;
+        leftWing.rotation.x = -Math.PI / 8;
+        leftWing.scaling.z = 0.1;
+        leftWing.material = wingsMat;
+        leftWing.isVisible = false;
+        
+        const rightWing = BABYLON.MeshBuilder.CreateCylinder("e_wings_right", { diameterTop: 0.8, diameterBottom: 0.1, height: 2, tessellation: 16 }, scene);
+        rightWing.parent = this.wingsNode;
+        rightWing.position = new BABYLON.Vector3(0.6, 0, 0);
+        rightWing.rotation.z = -Math.PI / 6;
+        rightWing.rotation.x = -Math.PI / 8;
+        rightWing.scaling.z = 0.1;
+        rightWing.material = wingsMat;
+        rightWing.isVisible = false;
+    }
+
+    takeDamage(amount) {
+        if (this.hasWings) {
+            this.hasWings = false;
+            this.mesh.getChildMeshes().forEach(m => {
+                if (m.name.startsWith("e_wings")) m.isVisible = false;
+            });
+        }
+        
+        this.health -= amount;
+        if (this.health <= 0) {
+            this.isDead = true;
+            this.mesh.dispose();
+        }
     }
     
-    update(engine) {
+    update(engine, player, arrows) {
+        if (this.hasWings) {
+            // Flying behavior towards player
+            const dir = player.mesh.position.subtract(this.mesh.position);
+            if (dir.lengthSquared() > 0.001) {
+                dir.normalize();
+                this.mesh.position.addInPlace(dir.scale(this.speed)); 
+                this.mesh.rotation.y = Math.atan2(dir.x, dir.z);
+            }
+            
+            // Map boundaries
+            const bounds = 24.5;
+            if (this.mesh.position.x > bounds) this.mesh.position.x = bounds;
+            if (this.mesh.position.x < -bounds) this.mesh.position.x = -bounds;
+            if (this.mesh.position.z > bounds) this.mesh.position.z = bounds;
+            if (this.mesh.position.z < -bounds) this.mesh.position.z = -bounds;
+            if (this.mesh.position.y > 20) this.mesh.position.y = 20;
+            return;
+        }
+
         // Change direction randomly
         this.changeDirectionTimer -= engine.getDeltaTime();
         if (this.changeDirectionTimer <= 0) {
@@ -266,6 +594,8 @@ class EnemyEntity {
             // Randomly stop sometimes
             if (Math.random() < 0.3) {
                 this.moveDirection = BABYLON.Vector3.Zero();
+            } else if (this.yVelocity === 0 && Math.random() < 0.4) {
+                this.yVelocity = this.jumpForce; // Jump!
             }
         }
 
@@ -306,6 +636,68 @@ class EnemyEntity {
     }
 }
 
+class FlyingEnemyEntity {
+    constructor(scene, x, z) {
+        this.scene = scene;
+        this.speed = 0.05;
+        this.isDead = false;
+        this.health = 2;
+        this.moveDirection = new BABYLON.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
+        this.changeDirectionTimer = 0;
+        this.shootTimer = 2000; // shoot every 2 seconds
+
+        // Flying high in the sky
+        this.mesh = BABYLON.MeshBuilder.CreateBox("flyingEnemy", { size: 1.5 }, scene);
+        this.mesh.position.x = x;
+        this.mesh.position.y = 30; // High in the sky
+        this.mesh.position.z = z;
+        this.mesh.checkCollisions = true;
+
+        const mat = new BABYLON.StandardMaterial("flyingEnemyMat", scene);
+        mat.diffuseColor = new BABYLON.Color3(0.8, 0, 0.8); // Purple
+        this.mesh.material = mat;
+    }
+
+    takeDamage(amount) {
+        this.health -= amount;
+        if (this.health <= 0) {
+            this.isDead = true;
+            this.mesh.dispose();
+        }
+    }
+
+    update(engine, player, arrows) {
+        // Movement
+        this.changeDirectionTimer -= engine.getDeltaTime();
+        if (this.changeDirectionTimer <= 0) {
+            const angle = Math.random() * Math.PI * 2;
+            this.moveDirection = new BABYLON.Vector3(Math.cos(angle), 0, Math.sin(angle));
+            this.changeDirectionTimer = 1000 + Math.random() * 2000;
+        }
+
+        const moveVec = this.moveDirection.scale(this.speed);
+        this.mesh.position.addInPlace(moveVec);
+
+        // Keep in bounds
+        const bounds = 24.5;
+        if (this.mesh.position.x > bounds) this.mesh.position.x = bounds;
+        if (this.mesh.position.x < -bounds) this.mesh.position.x = -bounds;
+        if (this.mesh.position.z > bounds) this.mesh.position.z = bounds;
+        if (this.mesh.position.z < -bounds) this.mesh.position.z = -bounds;
+
+        // Face player
+        this.mesh.lookAt(player.mesh.position);
+
+        // Shooting
+        this.shootTimer -= engine.getDeltaTime();
+        if (this.shootTimer <= 0) {
+            this.shootTimer = 2000 + Math.random() * 1000; // 2-3 seconds
+            const dir = player.mesh.position.subtract(this.mesh.position).normalize();
+            arrows.push(new ArrowEntity(this.scene, this.mesh.position.clone(), dir, true));
+        }
+    }
+}
+
 const createScene = function () {
     const scene = new BABYLON.Scene(engine);
     scene.collisionsEnabled = true;
@@ -322,6 +714,7 @@ const createScene = function () {
     camera.upperRadiusLimit = 20;
     camera.upperBetaLimit = Math.PI / 2.2; 
     camera.checkCollisions = true;
+    camera.inertia = 0; // Prevent camera drift momentum
 
     // Lighting
     const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
@@ -342,18 +735,24 @@ const createScene = function () {
     const boxes = [];
     for (let i = 0; i < 20; i++) {
         const height = Math.random() * 2 + 1;
-        const x = (Math.random() - 0.5) * 40;
-        const z = (Math.random() - 0.5) * 40;
+        let x = (Math.random() - 0.5) * 40;
+        let z = (Math.random() - 0.5) * 40;
+        // Don't spawn boxes in the center
+        while (Math.abs(x) < 5 && Math.abs(z) < 5) {
+            x = (Math.random() - 0.5) * 40;
+            z = (Math.random() - 0.5) * 40;
+        }
         boxes.push(new BoxEntity("box" + i, x, z, height, scene));
     }
 
     // Populate enemies
     const enemies = [];
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 4; i++) {
         const x = (Math.random() - 0.5) * 40;
         const z = (Math.random() - 0.5) * 40;
         enemies.push(new EnemyEntity(scene, x, z));
     }
+    enemies.push(new FlyingEnemyEntity(scene, 0, 0));
 
     // Create player and follow them with the camera
     const player = new PlayerEntity(scene, camera);
@@ -369,10 +768,148 @@ const createScene = function () {
         inputMap[evt.sourceEvent.key.toLowerCase()] = evt.sourceEvent.type == "keydown";
     }));
 
+    // Prevent keys from getting stuck if window loses focus
+    window.addEventListener("blur", () => {
+        for (let key in inputMap) {
+            inputMap[key] = false;
+        }
+    });
+
+    let enemySpawnTimer = 0;
+    const arrows = [];
+    
+    // Pickups system
+    const pickups = [];
+    let wingSpawnTimer = 4000; // Start at 4000 so it spawns almost immediately (at 5000)
+    
+    const spawnWings = () => {
+        const wingPickupMat = new BABYLON.StandardMaterial("wingPickupMat", scene);
+        wingPickupMat.diffuseColor = new BABYLON.Color3(1, 1, 1);
+        wingPickupMat.emissiveColor = new BABYLON.Color3(0.5, 0.5, 0.5); // Make it glow a bit so it's obvious
+        
+        // Invisible collision box for the pickup
+        const wingPickup = BABYLON.MeshBuilder.CreateBox("wingPickup", { width: 2, height: 2, depth: 1 }, scene);
+        wingPickup.visibility = 0; // invisible
+        
+        // Add actual visual wings to the pickup
+        const leftPickupWing = BABYLON.MeshBuilder.CreateCylinder("pw_left", { diameterTop: 0.8, diameterBottom: 0.1, height: 2, tessellation: 16 }, scene);
+        leftPickupWing.parent = wingPickup;
+        leftPickupWing.position = new BABYLON.Vector3(-0.6, 0, 0);
+        leftPickupWing.rotation.z = Math.PI / 6;
+        leftPickupWing.scaling.z = 0.1;
+        leftPickupWing.material = wingPickupMat;
+        
+        const rightPickupWing = BABYLON.MeshBuilder.CreateCylinder("pw_right", { diameterTop: 0.8, diameterBottom: 0.1, height: 2, tessellation: 16 }, scene);
+        rightPickupWing.parent = wingPickup;
+        rightPickupWing.position = new BABYLON.Vector3(0.6, 0, 0);
+        rightPickupWing.rotation.z = -Math.PI / 6;
+        rightPickupWing.scaling.z = 0.1;
+        rightPickupWing.material = wingPickupMat;
+        
+        // Spawn it close to the center so it's easy to find
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 5 + Math.random() * 5; // 5 to 10 units away
+        wingPickup.position = new BABYLON.Vector3(Math.cos(angle) * radius, 1, Math.sin(angle) * radius);
+        pickups.push({ type: "wings", mesh: wingPickup });
+    };
+
     // Game loop
     scene.onBeforeRenderObservable.add(() => {
-        player.update(inputMap, engine, enemies);
-        enemies.forEach(e => e.update(engine));
+        player.update(inputMap, engine, enemies, arrows);
+        
+        // Update pickups
+        for (let i = pickups.length - 1; i >= 0; i--) {
+            const pickup = pickups[i];
+            pickup.mesh.rotation.y += 0.05; // Spin effect
+            let pickedUp = false;
+            
+            if (player.mesh.intersectsMesh(pickup.mesh, false)) {
+                if (pickup.type === "wings") {
+                    player.hasWings = true;
+                    // Make wings visible
+                    player.mesh.getChildMeshes().forEach(m => {
+                        if (m.name.startsWith("wings")) m.isVisible = true;
+                    });
+                }
+                pickedUp = true;
+            } else {
+                for (const enemy of enemies) {
+                    if (!enemy.isDead && !enemy.hasWings && enemy.mesh.intersectsMesh(pickup.mesh, false)) {
+                        if (pickup.type === "wings") {
+                            enemy.hasWings = true;
+                            enemy.mesh.getChildMeshes().forEach(m => {
+                                if (m.name.startsWith("e_wings")) m.isVisible = true;
+                            });
+                        }
+                        pickedUp = true;
+                        break;
+                    }
+                }
+            }
+
+            if (pickedUp) {
+                pickup.mesh.dispose();
+                pickups.splice(i, 1);
+            }
+        }
+
+        // Spawn wings if they don't have them
+        if (!player.hasWings && pickups.length === 0) {
+            wingSpawnTimer += engine.getDeltaTime();
+            if (wingSpawnTimer > 5000) { // Every 5 seconds it will spawn if you lost it
+                wingSpawnTimer = 0;
+                spawnWings();
+            }
+        }
+
+        // Update arrows and check arrow collisions
+        for (let i = arrows.length - 1; i >= 0; i--) {
+            const arrow = arrows[i];
+            arrow.update(engine);
+            
+            if (arrow.isEnemyArrow) {
+                if (!player.invulnerableTimer && arrow.mesh.intersectsMesh(player.mesh, false)) {
+                    player.takeDamage(2);
+                    arrow.isDead = true;
+                    arrow.mesh.dispose();
+                }
+            } else {
+                for (const enemy of enemies) {
+                    if (!enemy.isDead && arrow.mesh.intersectsMesh(enemy.mesh, false)) {
+                        enemy.takeDamage(2);
+                        arrow.isDead = true;
+                        arrow.mesh.dispose();
+                        break;
+                    }
+                }
+            }
+
+            if (arrow.isDead) {
+                arrows.splice(i, 1);
+            }
+        }
+
+        // Spawn new enemies
+        enemySpawnTimer += engine.getDeltaTime();
+        if (enemySpawnTimer > 10000) {
+            enemySpawnTimer -= 10000;
+            const x = (Math.random() - 0.5) * 40;
+            const z = (Math.random() - 0.5) * 40;
+            if (Math.random() < 0.2) {
+                enemies.push(new FlyingEnemyEntity(scene, x, z));
+            } else {
+                enemies.push(new EnemyEntity(scene, x, z));
+            }
+        }
+
+        // Clean up dead enemies
+        for (let i = enemies.length - 1; i >= 0; i--) {
+            if (enemies[i].isDead) {
+                enemies.splice(i, 1);
+            } else {
+                enemies[i].update(engine, player, arrows);
+            }
+        }
     });
 
     return scene;
