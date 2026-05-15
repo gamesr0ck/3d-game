@@ -731,28 +731,58 @@ const createScene = function () {
     groundMat.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
     ground.material = groundMat;
 
-    // Populate the world with boxes using our BoxEntity class
-    const boxes = [];
-    for (let i = 0; i < 20; i++) {
-        const height = Math.random() * 2 + 1;
-        let x = (Math.random() - 0.5) * 40;
-        let z = (Math.random() - 0.5) * 40;
-        // Don't spawn boxes in the center
-        while (Math.abs(x) < 5 && Math.abs(z) < 5) {
-            x = (Math.random() - 0.5) * 40;
-            z = (Math.random() - 0.5) * 40;
+    let boxes = [];
+    let enemies = [];
+    let currentLevel = 1;
+
+    function generateLevel() {
+        for (let box of boxes) {
+            if (box.mesh) box.mesh.dispose();
         }
-        boxes.push(new BoxEntity("box" + i, x, z, height, scene));
+        boxes = [];
+        
+        for (let enemy of enemies) {
+            if (enemy.mesh) enemy.mesh.dispose();
+        }
+        enemies = [];
+
+        // Populate the world with boxes using our BoxEntity class
+        for (let i = 0; i < 20; i++) {
+            const height = Math.random() * 2 + 1;
+            let x = (Math.random() - 0.5) * 40;
+            let z = (Math.random() - 0.5) * 40;
+            // Don't spawn boxes in the center
+            while (Math.abs(x) < 5 && Math.abs(z) < 5) {
+                x = (Math.random() - 0.5) * 40;
+                z = (Math.random() - 0.5) * 40;
+            }
+            boxes.push(new BoxEntity("box" + i, x, z, height, scene));
+        }
+
+        // The level will start with 2 more enemies than before.
+        const totalExtraEnemies = (currentLevel - 1) * 2;
+        const extraFlying = Math.floor(totalExtraEnemies / 3); // distribute some to flying
+        const extraGround = totalExtraEnemies - extraFlying;
+
+        // Populate ground enemies
+        for (let i = 0; i < 4 + extraGround; i++) {
+            const x = (Math.random() - 0.5) * 40;
+            const z = (Math.random() - 0.5) * 40;
+            enemies.push(new EnemyEntity(scene, x, z));
+        }
+        
+        // Populate flying enemies
+        for (let i = 0; i < 1 + extraFlying; i++) {
+            const x = (Math.random() - 0.5) * 40;
+            const z = (Math.random() - 0.5) * 40;
+            enemies.push(new FlyingEnemyEntity(scene, x, z));
+        }
+
+        const levelDisplay = document.getElementById("levelDisplay");
+        if (levelDisplay) levelDisplay.innerText = "Level: " + currentLevel;
     }
 
-    // Populate enemies
-    const enemies = [];
-    for (let i = 0; i < 4; i++) {
-        const x = (Math.random() - 0.5) * 40;
-        const z = (Math.random() - 0.5) * 40;
-        enemies.push(new EnemyEntity(scene, x, z));
-    }
-    enemies.push(new FlyingEnemyEntity(scene, 0, 0));
+    generateLevel();
 
     // Create player and follow them with the camera
     const player = new PlayerEntity(scene, camera);
@@ -889,19 +919,6 @@ const createScene = function () {
             }
         }
 
-        // Spawn new enemies
-        enemySpawnTimer += engine.getDeltaTime();
-        if (enemySpawnTimer > 10000) {
-            enemySpawnTimer -= 10000;
-            const x = (Math.random() - 0.5) * 40;
-            const z = (Math.random() - 0.5) * 40;
-            if (Math.random() < 0.2) {
-                enemies.push(new FlyingEnemyEntity(scene, x, z));
-            } else {
-                enemies.push(new EnemyEntity(scene, x, z));
-            }
-        }
-
         // Clean up dead enemies
         for (let i = enemies.length - 1; i >= 0; i--) {
             if (enemies[i].isDead) {
@@ -909,6 +926,23 @@ const createScene = function () {
             } else {
                 enemies[i].update(engine, player, arrows);
             }
+        }
+
+        // Check level completion
+        if (enemies.length === 0) {
+            currentLevel++;
+            generateLevel();
+            // Reset player position for the new level
+            player.mesh.position = new BABYLON.Vector3(0, 5, 0);
+            player.yVelocity = 0;
+            
+            // Clean up existing arrows
+            for (let arrow of arrows) {
+                if (arrow.mesh) arrow.mesh.dispose();
+            }
+            arrows.length = 0;
+            
+            // Optional: reset health or wings if desired.
         }
     });
 
