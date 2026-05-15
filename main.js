@@ -698,6 +698,132 @@ class FlyingEnemyEntity {
     }
 }
 
+class DragonEntity {
+    constructor(scene, x, z) {
+        this.scene = scene;
+        this.speed = 0.08;
+        this.isDead = false;
+        this.health = 10;
+        this.moveDirection = new BABYLON.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
+        this.changeDirectionTimer = 0;
+        this.shootTimer = 1500;
+        
+        this.gravity = -0.015;
+        this.yVelocity = 0;
+
+        this.mesh = BABYLON.MeshBuilder.CreateCapsule("dragon", { radius: 1, height: 3 }, scene);
+        this.mesh.position.x = x;
+        this.mesh.position.y = 1.5;
+        this.mesh.position.z = z;
+        this.mesh.checkCollisions = true;
+        this.mesh.ellipsoid = new BABYLON.Vector3(1, 1.5, 1);
+        this.mesh.ellipsoidOffset = new BABYLON.Vector3(0, 0, 0);
+        this.mesh.isVisible = false;
+
+        this.buildBodyParts();
+    }
+    
+    buildBodyParts() {
+        const scene = this.scene;
+        
+        const scaleMat = new BABYLON.StandardMaterial("dragonScaleMat", scene);
+        scaleMat.diffuseColor = new BABYLON.Color3(0.1, 0.6, 0.1);
+        
+        const bellyMat = new BABYLON.StandardMaterial("dragonBellyMat", scene);
+        bellyMat.diffuseColor = new BABYLON.Color3(0.6, 0.8, 0.2);
+        
+        const wingMat = new BABYLON.StandardMaterial("dragonWingMat", scene);
+        wingMat.diffuseColor = new BABYLON.Color3(0.05, 0.4, 0.05);
+        
+        const body = BABYLON.MeshBuilder.CreateCylinder("d_body", { diameterTop: 1, diameterBottom: 1.5, height: 2 }, scene);
+        body.parent = this.mesh;
+        body.position.y = 0;
+        body.rotation.x = Math.PI / 4;
+        body.material = scaleMat;
+        
+        const head = BABYLON.MeshBuilder.CreateBox("d_head", { width: 0.8, height: 0.8, depth: 1.2 }, scene);
+        head.parent = this.mesh;
+        head.position = new BABYLON.Vector3(0, 1.2, 0.8);
+        head.material = scaleMat;
+        
+        const snout = BABYLON.MeshBuilder.CreateBox("d_snout", { width: 0.6, height: 0.4, depth: 0.8 }, scene);
+        snout.parent = head;
+        snout.position = new BABYLON.Vector3(0, -0.2, 0.8);
+        snout.material = bellyMat;
+        
+        const leftWing = BABYLON.MeshBuilder.CreateCylinder("d_wingL", { diameterTop: 3, diameterBottom: 0.1, height: 0.1, tessellation: 3 }, scene);
+        leftWing.parent = this.mesh;
+        leftWing.position = new BABYLON.Vector3(-1.2, 0.5, -0.5);
+        leftWing.rotation.z = Math.PI / 6;
+        leftWing.rotation.y = -Math.PI / 8;
+        leftWing.material = wingMat;
+        
+        const rightWing = BABYLON.MeshBuilder.CreateCylinder("d_wingR", { diameterTop: 3, diameterBottom: 0.1, height: 0.1, tessellation: 3 }, scene);
+        rightWing.parent = this.mesh;
+        rightWing.position = new BABYLON.Vector3(1.2, 0.5, -0.5);
+        rightWing.rotation.z = -Math.PI / 6;
+        rightWing.rotation.y = Math.PI / 8;
+        rightWing.material = wingMat;
+        
+        const tail = BABYLON.MeshBuilder.CreateCylinder("d_tail", { diameterTop: 0.8, diameterBottom: 0.1, height: 2 }, scene);
+        tail.parent = this.mesh;
+        tail.position = new BABYLON.Vector3(0, -0.8, -1);
+        tail.rotation.x = -Math.PI / 3;
+        tail.material = scaleMat;
+        
+        this.wings = [leftWing, rightWing];
+    }
+    
+    takeDamage(amount) {
+        this.health -= amount;
+        if (this.health <= 0) {
+            this.isDead = true;
+            this.mesh.dispose();
+        }
+    }
+    
+    update(engine, player, arrows) {
+        const time = Date.now() / 200;
+        this.wings[0].rotation.z = Math.PI / 6 + Math.sin(time) * 0.2;
+        this.wings[1].rotation.z = -Math.PI / 6 - Math.sin(time) * 0.2;
+        
+        const dir = player.mesh.position.subtract(this.mesh.position);
+        dir.y = 0;
+        
+        if (dir.lengthSquared() > 0.001) {
+            this.mesh.rotation.y = Math.atan2(dir.x, dir.z);
+        }
+        
+        if (dir.length() > 5) {
+            const moveVec = dir.normalize().scale(this.speed);
+            this.yVelocity += this.gravity;
+            moveVec.y = this.yVelocity;
+            
+            const oldY = this.mesh.position.y;
+            this.mesh.moveWithCollisions(moveVec);
+            
+            if (this.yVelocity < 0 && this.mesh.position.y >= oldY - 0.001) {
+                this.yVelocity = 0;
+            }
+        }
+        
+        this.shootTimer -= engine.getDeltaTime();
+        if (this.shootTimer <= 0) {
+            this.shootTimer = 1500 + Math.random() * 1000;
+            const shootDir = player.mesh.position.subtract(this.mesh.position).normalize();
+            const pos = this.mesh.position.clone();
+            pos.y += 1.2;
+            arrows.push(new ArrowEntity(this.scene, pos, shootDir, true));
+        }
+        
+        const bounds = 24.5;
+        if (this.mesh.position.x > bounds) this.mesh.position.x = bounds;
+        if (this.mesh.position.x < -bounds) this.mesh.position.x = -bounds;
+        if (this.mesh.position.z > bounds) this.mesh.position.z = bounds;
+        if (this.mesh.position.z < -bounds) this.mesh.position.z = -bounds;
+    }
+}
+
 const createScene = function () {
     const scene = new BABYLON.Scene(engine);
     scene.collisionsEnabled = true;
@@ -766,16 +892,29 @@ const createScene = function () {
 
         // Populate ground enemies
         for (let i = 0; i < 4 + extraGround; i++) {
-            const x = (Math.random() - 0.5) * 40;
-            const z = (Math.random() - 0.5) * 40;
+            let x = (Math.random() - 0.5) * 40;
+            let z = (Math.random() - 0.5) * 40;
+            while (Math.abs(x) < 5 && Math.abs(z) < 5) {
+                x = (Math.random() - 0.5) * 40;
+                z = (Math.random() - 0.5) * 40;
+            }
             enemies.push(new EnemyEntity(scene, x, z));
         }
         
         // Populate flying enemies
         for (let i = 0; i < 1 + extraFlying; i++) {
-            const x = (Math.random() - 0.5) * 40;
-            const z = (Math.random() - 0.5) * 40;
+            let x = (Math.random() - 0.5) * 40;
+            let z = (Math.random() - 0.5) * 40;
+            while (Math.abs(x) < 5 && Math.abs(z) < 5) {
+                x = (Math.random() - 0.5) * 40;
+                z = (Math.random() - 0.5) * 40;
+            }
             enemies.push(new FlyingEnemyEntity(scene, x, z));
+        }
+
+        if (currentLevel === 1) {
+            // Spawn a dragon in front of the player when you start the game
+            enemies.push(new DragonEntity(scene, 0, 8));
         }
 
         const levelDisplay = document.getElementById("levelDisplay");
