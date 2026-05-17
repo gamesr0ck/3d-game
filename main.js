@@ -1,19 +1,6 @@
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
 
-class BoxEntity {
-    constructor(name, x, z, height, scene) {
-        this.mesh = BABYLON.MeshBuilder.CreateBox(name, { width: 2, depth: 2, height: height }, scene);
-        this.mesh.position.x = x;
-        this.mesh.position.z = z;
-        this.mesh.position.y = height / 2;
-        this.mesh.checkCollisions = true;
-        
-        const mat = new BABYLON.StandardMaterial(name + "Mat", scene);
-        mat.diffuseColor = new BABYLON.Color3(Math.random(), Math.random(), Math.random());
-        this.mesh.material = mat;
-    }
-}
 
 class ArrowEntity {
     constructor(scene, position, direction, isEnemyArrow = false) {
@@ -850,40 +837,72 @@ const createScene = function () {
     dirLight.intensity = 0.5;
 
     // Ground
-    const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 50, height: 50 }, scene);
+    const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 50, height: 50, subdivisions: 64, updatable: true }, scene);
     ground.checkCollisions = true;
     const groundMat = new BABYLON.StandardMaterial("groundMat", scene);
     groundMat.diffuseColor = new BABYLON.Color3(0.3, 0.8, 0.3);
     groundMat.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
     ground.material = groundMat;
-
-    let boxes = [];
     let enemies = [];
     let currentLevel = 1;
 
     function generateLevel() {
-        for (let box of boxes) {
-            if (box.mesh) box.mesh.dispose();
-        }
-        boxes = [];
-        
         for (let enemy of enemies) {
             if (enemy.mesh) enemy.mesh.dispose();
         }
         enemies = [];
 
-        // Populate the world with boxes using our BoxEntity class
-        for (let i = 0; i < 20; i++) {
-            const height = Math.random() * 2 + 1;
-            let x = (Math.random() - 0.5) * 40;
-            let z = (Math.random() - 0.5) * 40;
-            // Don't spawn boxes in the center
-            while (Math.abs(x) < 5 && Math.abs(z) < 5) {
-                x = (Math.random() - 0.5) * 40;
-                z = (Math.random() - 0.5) * 40;
+        // Generate procedural terrain
+        const positions = ground.getVerticesData(BABYLON.VertexBuffer.PositionKind);
+        const seed1 = Math.random() * 100;
+        const seed2 = Math.random() * 100;
+        const seed3 = Math.random() * 100;
+        
+        for (let i = 0; i < positions.length; i += 3) {
+            const x = positions[i];
+            const z = positions[i + 2];
+            
+            // Protect center spawn area
+            const distToCenter = Math.sqrt(x*x + z*z);
+            let height = 0;
+            
+            if (distToCenter > 6) {
+                // Procedural generation using sine waves for hills and cliffs
+                const wave1 = Math.sin(x * 0.2 + seed1) * Math.cos(z * 0.2 + seed1) * 2.0; // rolling hills
+                const wave2 = Math.sin(x * 0.5 + seed2) * Math.sin(z * 0.4 + seed2) * 1.5; // smaller bumps
+                const wave3 = Math.sin(x * 0.1 + seed3) * Math.cos(z * 0.1 + seed3) * 5.0; // large cliffs
+                
+                height = wave1 + wave2 + wave3;
+                
+                // Keep base level mostly flat, add sharp cliffs
+                if (height < 1.0) {
+                    height = 0; // Flat ground
+                } else {
+                    height = height - 1.0; // Start rising
+                }
+                
+                // Add steepness for cliffs
+                if (height > 3.0) {
+                    height += 2.0;
+                }
+                
+                // Blend with center
+                if (distToCenter < 12) {
+                    height *= (distToCenter - 6) / 6; 
+                }
             }
-            boxes.push(new BoxEntity("box" + i, x, z, height, scene));
+            
+            positions[i + 1] = height;
         }
+        
+        ground.updateVerticesData(BABYLON.VertexBuffer.PositionKind, positions);
+        
+        const normals = [];
+        BABYLON.VertexData.ComputeNormals(positions, ground.getIndices(), normals);
+        ground.updateVerticesData(BABYLON.VertexBuffer.NormalKind, normals);
+        
+        // Force refresh of bounding info for collisions
+        ground.refreshBoundingInfo();
 
         // The level will start with 2 more enemies than before.
         const totalExtraEnemies = (currentLevel - 1) * 2;
