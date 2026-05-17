@@ -292,12 +292,7 @@ class PlayerEntity {
             this.isGrounded = false;
         }
 
-        // Keep player on the map
-        const bounds = 24.5;
-        if (this.mesh.position.x > bounds) this.mesh.position.x = bounds;
-        if (this.mesh.position.x < -bounds) this.mesh.position.x = -bounds;
-        if (this.mesh.position.z > bounds) this.mesh.position.z = bounds;
-        if (this.mesh.position.z < -bounds) this.mesh.position.z = -bounds;
+        // Player map bounds removed
         
         // Reset if falling off (just a safety net)
         if (this.mesh.position.y < -10) {
@@ -574,12 +569,7 @@ class EnemyEntity {
                 this.mesh.rotation.y = Math.atan2(dir.x, dir.z);
             }
             
-            // Map boundaries
-            const bounds = 24.5;
-            if (this.mesh.position.x > bounds) this.mesh.position.x = bounds;
-            if (this.mesh.position.x < -bounds) this.mesh.position.x = -bounds;
-            if (this.mesh.position.z > bounds) this.mesh.position.z = bounds;
-            if (this.mesh.position.z < -bounds) this.mesh.position.z = -bounds;
+            // Enemy map boundaries removed
             if (this.mesh.position.y > 20) this.mesh.position.y = 20;
             return;
         }
@@ -622,12 +612,7 @@ class EnemyEntity {
             this.yVelocity = 0;
         }
 
-        // Map boundaries
-        const bounds = 24.5;
-        if (this.mesh.position.x > bounds) this.mesh.position.x = bounds;
-        if (this.mesh.position.x < -bounds) this.mesh.position.x = -bounds;
-        if (this.mesh.position.z > bounds) this.mesh.position.z = bounds;
-        if (this.mesh.position.z < -bounds) this.mesh.position.z = -bounds;
+        // Map boundaries removed
         
         if (this.mesh.position.y < -10) {
             this.mesh.position.y = 10;
@@ -678,12 +663,7 @@ class FlyingEnemyEntity {
         const moveVec = this.moveDirection.scale(this.speed);
         this.mesh.position.addInPlace(moveVec);
 
-        // Keep in bounds
-        const bounds = 24.5;
-        if (this.mesh.position.x > bounds) this.mesh.position.x = bounds;
-        if (this.mesh.position.x < -bounds) this.mesh.position.x = -bounds;
-        if (this.mesh.position.z > bounds) this.mesh.position.z = bounds;
-        if (this.mesh.position.z < -bounds) this.mesh.position.z = -bounds;
+        // Keep in bounds removed
 
         // Face player
         this.mesh.lookAt(player.mesh.position);
@@ -724,7 +704,7 @@ const createScene = function () {
     dirLight.intensity = 0.5;
 
     // Ground
-    const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 50, height: 50 }, scene);
+    const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 100000, height: 100000 }, scene);
     ground.checkCollisions = true;
     const groundMat = new BABYLON.StandardMaterial("groundMat", scene);
     groundMat.diffuseColor = new BABYLON.Color3(0.3, 0.8, 0.3);
